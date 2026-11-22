@@ -1,0 +1,12 @@
+---
+title: Air Drawing Studio
+emoji: ✋
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+# Air Drawing Studio
+Draw in the air with your hand, control it by voice,solve arithmetic, and break down pdfs.  Open the app in Chrome and allow camera and microphone.

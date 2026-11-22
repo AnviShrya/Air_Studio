@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Air Drawing System</title>
+<style>
+:root{--bg:#0d1017;--panel:#171b25;--line:#2a3040;--txt:#e8eaf0;--mut:#8b92a5;--acc:#4f8cff;--ok:#3ddc84}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,"Segoe UI",Roboto,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line)}
+h1{font-size:17px;margin:0}#status{color:var(--mut);font-size:13px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;padding:14px;max-width:1300px;margin:auto}
+@media(max-width:950px){main{grid-template-columns:1fr}}
+.stage{position:relative;aspect-ratio:4/3;background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+.stage>video,.stage>canvas{position:absolute;inset:0;width:100%;height:100%}
+video{transform:scaleX(-1);object-fit:cover}#hud{pointer-events:none}
+#draw.glow{filter:drop-shadow(0 0 5px rgba(255,255,255,.6))}
+.dock{position:absolute;left:8px;right:8px;display:flex;flex-wrap:wrap;gap:5px;z-index:3;align-items:center}
+#top{top:8px}#bot{bottom:8px}
+.g{background:rgba(24,28,40,.86);color:var(--txt);border:1px solid #3a4258;border-radius:9px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;min-height:36px}
+.g:hover,.g.hov{border-color:var(--acc);outline:2px solid var(--acc)}
+.g.on{background:var(--acc);border-color:var(--acc)}
+.sw{width:36px;padding:0;border-radius:50%}.sw.on{outline:2px solid #fff}
+.panel{position:absolute;left:8px;right:8px;background:rgba(10,12,18,.9);border:1px solid #3a4258;border-radius:12px;padding:10px 12px;z-index:3;font-size:14px}
+#bubble{bottom:82px;max-height:36%;overflow:auto;white-space:pre-wrap}#quizbox{bottom:82px}
+#live{position:absolute;left:12px;bottom:52px;z-index:3;font-size:12px;color:#9db8ff;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:8px}
+#toast{position:absolute;top:56px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);padding:6px 14px;border-radius:20px;font-size:13px;opacity:0;transition:.25s;z-index:5;pointer-events:none;max-width:90%;text-align:center}
+#toast.on{opacity:1}
+#start{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.78);z-index:9;text-align:center;padding:20px}
+aside{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.card h3{margin:0 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+button{background:#232838;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--acc)}button.big{background:var(--acc);border-color:var(--acc);font-size:16px;padding:12px 22px}
+input[type=text],select{background:#0d1017;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:inherit;min-width:0}
+.row{display:flex;gap:6px;flex-wrap:wrap}small,.mut{color:var(--mut);font-size:12.5px}
+#chat{height:250px;overflow:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.msg{padding:7px 10px;border-radius:10px;font-size:13.5px;max-width:92%;white-space:pre-wrap}
+.msg.you{align-self:flex-end;background:#27406e}.msg.bot{align-self:flex-start;background:#232838}.msg small{color:#9db8ff}
+#answer{font-size:26px;font-weight:700;color:var(--ok);min-height:34px}#expr{color:var(--mut);min-height:20px}
+#hist{margin:6px 0 0;padding:0;list-style:none;color:var(--mut);font-size:13px}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+<header><h1>Air Drawing System</h1><span><b id="aiTag" style="margin-right:12px"></b><b id="mic" style="color:var(--acc);margin-right:12px"></b><span id="status">Press Start</span></span></header>
+<main>
+  <div class="stage" id="stage">
+    <video id="cam" playsinline muted></video>
+    <canvas id="pdfc" width="1280" height="960" style="display:none"></canvas>
+    <canvas id="draw" width="640" height="480" class="glow"></canvas>
+    <div class="dock" id="top"></div>
+    <div class="panel" id="quizbox" hidden></div>
+    <div class="panel" id="bubble" hidden></div>
+    <div id="live" hidden></div>
+    <div class="dock" id="bot">
+      <button class="g" id="bPrev">&lt; Prev</button><button class="g" id="bNext">Next &gt;</button><span id="pg" class="mut" style="color:#9db8ff"></span>
+      <button class="g" id="bSum">Summarize</button><button class="g" id="bExp">Explain this</button><button class="g" id="bQuiz">Quiz me</button>
+      <button class="g" id="bMic">Mic</button><button class="g" id="bVoice">Replies</button>
+    </div>
+    <canvas id="hud" width="640" height="480"></canvas>
+    <div id="toast"></div>
+    <div id="start"><div><p>Allow camera &amp; microphone when asked.<br><small>Use Chrome or Edge. Open the page on <b>localhost</b>.</small></p><button class="big" id="startBtn">Start</button></div></div>
+  </div>
+  <aside>
+    <div class="card"><h3>PDF study bot</h3>
+      <div class="row" style="margin-bottom:8px"><button id="pdfBtn">Open PDF</button><input type="file" id="pdfIn" accept="application/pdf" hidden><button id="pdfClose">Close PDF</button></div>
+      <div id="chat"></div>
+      <div class="row"><input type="text" id="chatIn" placeholder="Ask the PDF anything..." style="flex:1"><button id="chatBtn">Send</button></div>
+      <small>Point your finger at text, or highlight a line, then say <b>"explain this"</b>.</small></div>
+    <div class="card"><h3>Air calculator</h3><div id="expr">Draw e.g. 12 + 7 = and pause</div><div id="answer"></div><ul id="hist"></ul></div>
+    <div class="card"><h3>How to control</h3><small>
+      <b>1 finger</b> draw &middot; <b>2 fingers</b> move/hover &middot; <b>3 fingers</b> erase &middot; <b>open palm</b> (hold) clear.<br>
+      Hold a fingertip over any button for ~1 second to select it (or just click with the mouse).<br>
+      Voice: "clear", "undo", "red", "highlighter", "next page", "summarize", "quiz me", "what is ...?", "25 times 4"</small></div>
+    <details class="card"><summary><small>Developer tools: dataset collector</small></summary>
+      <div class="row" style="margin-top:8px"><select id="lab"></select><button id="saveSample">Save sample</button></div>
+      <small id="cnt">Draw ONE symbol, pick its label, save.</small></details>
+  </aside>
+</main>
+
+<script type="module">
+import {HandLandmarker, FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const W = 640, H = 480, $ = id => document.getElementById(id);
+const cam = $("cam"), draw = $("draw"), hud = $("hud"), stage = $("stage"), pdfc = $("pdfc");
+const ctx = draw.getContext("2d", {willReadFrequently: true}), hctx = hud.getContext("2d"), pctx = pdfc.getContext("2d");
+const COLORS = {white:"#ffffff",red:"#ff4d4d",green:"#3dff6e",blue:"#32a0ff",yellow:"#ffe94d",pink:"#ff69b4",orange:"#ff9f1a",purple:"#a64dff",cyan:"#33f5ff"};
+const NAMES = [...Object.keys(COLORS), "rainbow"], SIZES = {S:5, M:10, L:20};
+let color = "white", brush = 10, tool = "pen", dark = false;
+let undoS = [], redoS = [], hands = [], dirty = false, lastEnd = 0;
+let pdfDoc = null, pageNo = 1, pdfOn = false, docId = null, textItems = [], lastMark = null, lastPoint = null;
+let quiz = null, quizBase = null, rec = null, voiceOn = false, speaking = false, voiceReplies = true, landmarker, lastVideoT = -1;
+const marks = {};
+
+// ================= helpers / UI =================
+function toast(t, ms = 2200) { const e = $("toast"); e.textContent = t; e.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove("on"), ms); }
+function mk(parent, label, fn, cls = "g") { const b = document.createElement("button"); b.textContent = label; b.className = cls; b.onclick = fn; (typeof parent === "string" ? $(parent) : parent).appendChild(b); return b; }
+async function post(url, body) { const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}); return r.json(); }
+const swatches = {}, toolBtns = {};
+for (const n of NAMES) {
+  const b = mk("top", "", () => setColor(n), "g sw"); b.title = n; swatches[n] = b;
+  b.style.background = n === "rainbow" ? "conic-gradient(red,yellow,lime,cyan,blue,magenta,red)" : COLORS[n];
+}
+const sizeBtns = {}; for (const [k, v] of Object.entries(SIZES)) sizeBtns[v] = mk("top", k, () => setBrush(v));
+toolBtns.pen = mk("top", "Pen", () => setTool("pen")); toolBtns.highlight = mk("top", "Highlight", () => setTool("highlight"));
+toolBtns.underline = mk("top", "Underline", () => setTool("underline")); toolBtns.eraser = mk("top", "Eraser", () => setTool("eraser"));
+mk("top", "Undo", doUndo); mk("top", "Redo", doRedo); mk("top", "Clear", clearCanvas); mk("top", "Save", savePNG);
+toolBtns.dark = mk("top", "Dark", () => setDark(!dark));
+function refresh() {
+  for (const [n, b] of Object.entries(swatches)) b.classList.toggle("on", tool !== "eraser" && color === n);
+  for (const [v, b] of Object.entries(sizeBtns)) b.classList.toggle("on", brush == v);
+  for (const t of ["pen", "highlight", "underline", "eraser"]) toolBtns[t].classList.toggle("on", tool === t);
+  toolBtns.dark.classList.toggle("on", dark); toolBtns.dark.textContent = dark ? "Camera" : "Dark";
+  $("bMic").classList.toggle("on", voiceOn); $("bVoice").classList.toggle("on", voiceReplies);
+  $("bMic").textContent = voiceOn ? "Mic on" : "Mic off"; $("bVoice").textContent = voiceReplies ? "Replies on" : "Replies off";
+  cam.style.visibility = dark ? "hidden" : "visible";
+}
+function setColor(n) { color = n; if (tool === "eraser") tool = "pen"; refresh(); toast("Color: " + n); }
+function setBrush(v) { brush = v; if (tool === "eraser") tool = "pen"; refresh(); toast("Brush size " + v); }
+function setTool(t) { tool = t; refresh(); toast({pen: "Pen", eraser: "Eraser", highlight: "Highlighter", underline: "Underline"}[t]); }
+function setDark(v) { dark = v; refresh(); toast(v ? "Dark mode" : "Camera mode"); }
+const curColor = () => color === "rainbow" ? `hsl(${(performance.now() / 6) % 360},100%,60%)` : COLORS[color];
+
+// ================= canvas actions =================
+function snap() { undoS.push(ctx.getImageData(0, 0, W, H)); if (undoS.length > 30) undoS.shift(); redoS = []; }
+function doUndo() { if (!undoS.length) return toast("Nothing to undo"); redoS.push(ctx.getImageData(0, 0, W, H)); ctx.putImageData(undoS.pop(), 0, 0); toast("Undo"); }
+function doRedo() { if (!redoS.length) return toast("Nothing to redo"); undoS.push(ctx.getImageData(0, 0, W, H)); ctx.putImageData(redoS.pop(), 0, 0); toast("Redo"); }
+function clearCanvas() { snap(); ctx.clearRect(0, 0, W, H); dirty = false; lastMark = null; toast("Cleared (say undo to restore)"); }
+function savePNG() {                                    // saves exactly what you see: camera/dark + PDF page + your marks
+  const c = document.createElement("canvas"); c.width = W * 2; c.height = H * 2; const x = c.getContext("2d");
+  x.fillStyle = "#000"; x.fillRect(0, 0, c.width, c.height);
+  if (!dark) { x.save(); x.translate(c.width, 0); x.scale(-1, 1); x.drawImage(cam, 0, 0, c.width, c.height); x.restore(); }
+  if (pdfOn) x.drawImage(pdfc, 0, 0, c.width, c.height);
+  x.drawImage(draw, 0, 0, c.width, c.height);
+  const a = document.createElement("a"); a.href = c.toDataURL("image/png");
+  a.download = "drawing_" + new Date().toISOString().replace(/[:.]/g, "-") + ".png"; a.click(); toast("Saved");
+}
+function seg(a, b, kind) {
+  ctx.save(); ctx.lineCap = ctx.lineJoin = "round";
+  if (kind === "erase" || tool === "eraser") { ctx.globalCompositeOperation = "destination-out"; ctx.lineWidth = kind === "erase" ? 56 : brush * 2; }
+  else { ctx.strokeStyle = curColor(); ctx.lineWidth = brush; }
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.restore();
+}
+function markStroke(s) {                                // steady, straight highlighter / underline
+  const base = undoS[undoS.length - 1]; if (base) ctx.putImageData(base, 0, 0);
+  const y = s.pts[0].y, xs = s.pts.map(p => p.x), x1 = Math.min(...xs), x2 = Math.max(...xs);
+  const plain = color === "white" || color === "rainbow", hl = tool === "highlight";
+  ctx.save(); ctx.strokeStyle = plain ? (hl ? "#ffe94d" : "#ff3b3b") : COLORS[color];
+  if (hl) { ctx.globalAlpha = .4; ctx.lineWidth = 24; ctx.lineCap = "butt"; } else { ctx.lineWidth = 4; ctx.lineCap = "round"; }
+  ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2 + .01, y); ctx.stroke(); ctx.restore();
+}
+
+// ================= chat / bot output =================
+function chat(who, text, src) {
+  const d = document.createElement("div"); d.className = "msg " + who; d.textContent = text;
+  if (src) { d.appendChild(document.createElement("br")); const s = document.createElement("small"); s.textContent = src; d.appendChild(s); }
+  $("chat").appendChild(d); $("chat").scrollTop = 1e9;
+}
+function bot(text, o = {}) {
+  chat("bot", text, o.src);
+  const b = $("bubble"); b.textContent = ""; $("quizbox").hidden = true;
+  const t = document.createElement("div"); t.textContent = text; b.appendChild(t);
+  if (o.src) { const s = document.createElement("small"); s.textContent = o.src; b.appendChild(s); }
+  mk(b, "Close", () => { b.hidden = true; }); b.lastChild.style.marginTop = "6px"; b.hidden = false;
+  clearTimeout(bot.t); bot.t = setTimeout(() => { if (!quiz) b.hidden = true; }, 30000);
+  if (o.speak !== null) speak(o.speak || text.split(/(?<=[.!?])\s/)[0]);
+}
+function speak(t) {
+  if (!voiceReplies || !window.speechSynthesis) return;
+  speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t.slice(0, 200)), id = speak.id = (speak.id || 0) + 1; speaking = true;
+  try { rec && rec.abort(); } catch (e) {}                 // do not hear ourselves; restart as soon as we finish
+  u.onend = u.onerror = () => { if (id === speak.id) { speaking = false; setTimeout(startRec, 150); } };
+  speechSynthesis.speak(u);
+}
+function live(t) { const e = $("live"); e.textContent = "Hearing: " + t; e.hidden = false; clearTimeout(live.t); live.t = setTimeout(() => e.hidden = true, 3500); }
+
+// ================= calculator =================
+function showResult(expr, value) {
+  $("expr").textContent = expr; $("answer").textContent = "= " + value;
+  const li = document.createElement("li"); li.textContent = `${expr} = ${value}`; $("hist").prepend(li);
+  while ($("hist").children.length > 5) $("hist").lastChild.remove();
+  bot(`${expr} = ${value}`, {speak: "The answer is " + String(value).replace("-", "minus ")});
+}
+async function solve(auto) {
+  try {
+    const d = await post("/api/solve", {image: draw.toDataURL("image/png"), auto});
+    if (d.skip) return;
+    if (d.error) { if (!auto) toast(d.error, 3000); return; }
+    showResult(d.expr, d.value);
+    $("expr").textContent += "   (read: " + d.symbols.map(s => s.label.replace("*", "x")).join(" ") + ")";
+    if (d.unsure) toast("Some symbols were unclear - draw bigger / cleaner", 3500);
+  } catch (e) { toast("Server not reachable"); }
+}
+
+// ================= PDF =================
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+async function renderPage() {
+  const page = await pdfDoc.getPage(pageNo), v0 = page.getViewport({scale: 1});
+  const vp = page.getViewport({scale: Math.min(pdfc.width / v0.width, pdfc.height / v0.height)});
+  const off = document.createElement("canvas"); off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
+  const o = off.getContext("2d"); o.fillStyle = "#fff"; o.fillRect(0, 0, off.width, off.height);
+  await page.render({canvasContext: o, viewport: vp}).promise;
+  const ox = (pdfc.width - off.width) / 2, oy = (pdfc.height - off.height) / 2;
+  pctx.clearRect(0, 0, pdfc.width, pdfc.height); pctx.drawImage(off, ox, oy);
+  $("pg").textContent = `Page ${pageNo}/${pdfDoc.numPages}`;
+  const tc = await page.getTextContent();              // where every piece of text sits (for "explain this")
+  textItems = tc.items.filter(i => i.str.trim()).map(i => {
+    const t = pdfjsLib.Util.transform(vp.transform, i.transform), fh = Math.hypot(t[2], t[3]);
+    return {s: i.str, x: (ox + t[4]) / 2, y: (oy + t[5] - fh) / 2, w: i.width * vp.scale / 2, h: fh * 1.15 / 2};
+  });
+}
+async function goPage(n) {
+  if (!pdfDoc) return toast("Open a PDF first");
+  n = Math.max(1, Math.min(pdfDoc.numPages, n)); if (n === pageNo) return;
+  marks[pageNo] = ctx.getImageData(0, 0, W, H); pageNo = n; ctx.clearRect(0, 0, W, H);
+  if (marks[n]) ctx.putImageData(marks[n], 0, 0); undoS = []; redoS = []; lastMark = null; await renderPage();
+}
+$("pdfBtn").onclick = () => $("pdfIn").click();
+$("pdfIn").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (!window.pdfjsLib) return toast("PDF library did not load - check your internet", 4000);
+  try {
+    pdfDoc = await pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise;
+    pageNo = 1; for (const k in marks) delete marks[k]; ctx.clearRect(0, 0, W, H); undoS = []; redoS = []; lastMark = null; docId = null;
+    pdfOn = true; pdfc.style.display = "block"; if (color === "white") setColor("blue");
+    await renderPage(); chat("bot", `Opened ${f.name}. Reading its text...`); refreshAI();
+    const fd = new FormData(); fd.append("file", f);
+    const d = await (await fetch("/api/pdf", {method: "POST", body: fd})).json();
+    if (d.ok) { docId = d.doc_id; bot(`I have read "${f.name}" (${d.pages} pages). Ask me anything about it, or say: summarize, explain this, quiz me.`); }
+    else bot("I could not read text from this PDF: " + d.error, {speak: null});
+  } catch (err) { toast("Could not open that PDF", 4000); console.error(err); }
+  e.target.value = "";
+};
+function closePDF() { pdfDoc = null; pdfOn = false; docId = null; quiz = null; textItems = []; pdfc.style.display = "none"; $("pg").textContent = ""; $("quizbox").hidden = true; for (const k in marks) delete marks[k]; ctx.clearRect(0, 0, W, H); toast("PDF closed"); }
+$("pdfClose").onclick = closePDF;
+
+// ================= PDF bot =================
+const tag = d => d.via === "llm" ? "AI-written from your PDF" : "Basic mode (no AI connected)";
+async function refreshAI() {
+  try { const d = await (await fetch("/api/status")).json(), t = $("aiTag");
+    t.textContent = d.mode === "claude" ? "AI: Claude" : d.mode === "ollama" ? "AI: local model" : "Basic mode (no AI)";
+    t.style.color = d.mode === "none" ? "#ffb347" : "#3ddc84"; t.title = d.detail; } catch (e) {}
+}
+async function study(url, body) {
+  if (!pdfDoc) { bot("Please open a PDF first - then I can answer from it.", {speak: "Please open a PDF first"}); return null; }
+  if (!docId) { toast("Still reading the PDF (or it has no text)", 3500); return null; }
+  toast("Thinking...", 120000);
+  try { const d = await post(url, {doc_id: docId, ...body}); $("toast").classList.remove("on"); if (!d.ok) { toast(d.error, 4000); return null; } return d; }
+  catch (e) { toast("Server not reachable"); return null; }
+}
+function flashSource(text) {                            // highlight the answer sentence on the page itself
+  const norm = s => s.toLowerCase().replace(/\s+/g, " ").trim(), t = norm(text);
+  const hit = textItems.filter(it => { const s = norm(it.s); return s.length >= 10 && t.includes(s); });
+  if (!hit.length) return; snap(); ctx.save(); ctx.globalAlpha = .4; ctx.fillStyle = "#ffe94d";
+  hit.forEach(it => ctx.fillRect(it.x - 1, it.y, it.w + 2, it.h)); ctx.restore();
+}
+async function doSummary(whole) {
+  const d = await study("/api/summary", {page: whole ? null : pageNo, n: whole ? 6 : 3}); if (!d) return;
+  if (d.text) return bot(d.text, {speak: d.speak, src: tag(d)});
+  bot((whole ? "Summary of the PDF:\n" : `Summary of page ${pageNo}:\n`) + d.sentences.map(s => `\u2022 ${s.text} (p.${s.page})`).join("\n"),
+      {speak: d.sentences.map(s => s.text).join(" ").slice(0, 200)});
+}
+async function doAsk(q) {
+  const d = await study("/api/ask", {question: q}); if (!d) return;
+  if (!d.found) return bot("I could not find that in this PDF, so I won't guess. Try asking about a topic the document covers.", {speak: "I could not find that in the PDF"});
+  const s = d.sources[0]; bot(d.answer, {src: [tag(d), s ? `page ${s.page}` : ""].filter(Boolean).join(" - "), speak: d.speak});
+  if (s) { await goPage(s.page); flashSource(s.text); }
+}
+function focusText() {                                  // "this" = the exact words you highlighted, or what your finger points at
+  const now = performance.now(); let box = null;
+  if (lastMark && now - lastMark.t < 30000) box = {x1: lastMark.x1 - 3, x2: lastMark.x2 + 3, y1: lastMark.y - 14, y2: lastMark.y + 14};
+  else if (lastPoint && now - lastPoint.t < 10000) box = {x1: lastPoint.x - 45, x2: lastPoint.x + 45, y1: lastPoint.y - 12, y2: lastPoint.y + 12};
+  else if (lastMark && now - lastMark.t < 90000) box = {x1: lastMark.x1 - 3, x2: lastMark.x2 + 3, y1: lastMark.y - 14, y2: lastMark.y + 14};
+  if (!box) return "";
+  const parts = [];
+  for (const it of textItems) {
+    if (!(it.x < box.x2 && it.x + it.w > box.x1 && it.y < box.y2 && it.y + it.h > box.y1)) continue;
+    const n = it.s.length, a = Math.max(0, (box.x1 - it.x) / it.w), b = Math.min(1, (box.x2 - it.x) / it.w);
+    let i0 = Math.round(a * n), i1 = Math.round(b * n);         // only the characters under the highlight ...
+    while (i0 > 0 && /\S/.test(it.s[i0 - 1]) && /\S/.test(it.s[i0] || " ")) i0--;     // ... widened only if a word is cut in half
+    while (i1 < n && /\S/.test(it.s[i1 - 1] || " ") && /\S/.test(it.s[i1])) i1++;
+    parts.push(it.s.slice(i0, i1));
+  }
+  return parts.join(" ").replace(/\s+/g, " ").replace(/^[\s,;:.\-]+|[\s,;:.\-]+$/g, "").slice(0, 160);
+}
+async function doExplain() {
+  if (!pdfDoc) return bot("Please open a PDF first.", {speak: "Please open a PDF first"});
+  const f = focusText();
+  if (!f) return bot("Point your finger at some text, or highlight a line, then say \"explain this\".", {speak: "Point at some text first"});
+  chat("you", `Explain: "${f}"`);
+  const d = await study("/api/ask", {focus: f, page: pageNo}); if (!d) return;
+  if (!d.found) return bot(`I could not find an explanation for "${f}" in this PDF.`, {speak: "I could not find that in the PDF"});
+  const s = d.sources[0]; bot(d.answer, {src: [tag(d), s && d.via !== "llm" ? `related text on page ${s.page}` : ""].filter(Boolean).join(" - "), speak: d.speak});
+  if (s) { await goPage(s.page); flashSource(s.text); }
+}
+const HELP = "Open a PDF, then ask me anything about it. Try: \"summarize this page\", \"summarize the document\", \"what is overfitting?\", \"explain this\" (point at or highlight text), or \"quiz me\". If it is not in the PDF, I will say so.";
+const isMath = t => /\d|\b(plus|minus|times|divided|multiplied|squared|cubed|square root|percent)\b/.test(t);
+async function botIntent(text) {
+  const t = text.toLowerCase().trim();
+  if (quiz && /\b(stop|end|quit|cancel)\b/.test(t)) { quiz = null; $("quizbox").hidden = true; bot("Quiz stopped."); return true; }
+  if (/^(hi|hello|hey|namaste)\b/.test(t)) { bot("Hi! " + HELP, {speak: "Hi! Open a PDF and ask me anything about it."}); return true; }
+  if (/\bwhat can you do\b|^help\b/.test(t)) { bot(HELP, {speak: "Open a PDF, then ask me anything about it."}); return true; }
+  const sum = /\bsummar(y|ise|ize)\b/.test(t), qz = /\bquiz\b|\btest me\b/.test(t);
+  const expl = /\b(this|that|these|it)\b/.test(t) && /\b(mean|means|meaning|explain|what is|what's|define|tell me about)\b/.test(t);
+  const q = /^(what|who|why|how|when|where|which|explain|define|describe|tell me|is|are|does|can)\b/.test(t) && !isMath(t);
+  if (!(sum || qz || expl || q)) return false;
+  if (!pdfDoc) { bot("Please open a PDF first - then I can answer from it.", {speak: "Please open a PDF first"}); return true; }
+  if (!qz && !expl) chat("you", text);
+  if (sum) doSummary(/\b(document|whole|entire|all|full|pdf|book|chapter)\b/.test(t));
+  else if (qz) startQuiz(); else if (expl) doExplain(); else doAsk(text);
+  return true;
+}
+
+// ---- quiz: answer by WRITING 1-4 in the air (your CNN reads it), by voice, or by hovering an option ----
+async function startQuiz() {
+  const d = await study("/api/quiz", {n: 5}); if (!d) return;
+  quiz = {qs: d.questions, i: 0, score: 0, busy: false}; showQ();
+}
+function showQ() {
+  const q = quiz.qs[quiz.i], box = $("quizbox"); $("bubble").hidden = true; box.hidden = false; box.textContent = "";
+  const h = document.createElement("div"); h.textContent = `Question ${quiz.i + 1}/${quiz.qs.length}   |   score ${quiz.score}\n${q.q}`; h.style.cssText = "white-space:pre-wrap;margin-bottom:6px"; box.appendChild(h);
+  const row = document.createElement("div"); row.className = "row"; box.appendChild(row);
+  q.options.forEach((o, k) => mk(row, `${k + 1}. ${o}`, () => answerQuiz(k + 1)));
+  const s = document.createElement("small"); s.textContent = "Hover an option, write 1-4 in the air, or say the number."; box.appendChild(s);
+  quizBase = ctx.getImageData(0, 0, W, H); dirty = false; speak(`Question ${quiz.i + 1}. ` + q.q.replace(/_+/g, "blank"));
+}
+function answerQuiz(k) {
+  if (!quiz || quiz.busy) return; quiz.busy = true;
+  const q = quiz.qs[quiz.i], ok = k === q.answer; if (ok) quiz.score++;
+  toast(ok ? "Correct!" : `Wrong - answer ${q.answer}: ${q.options[q.answer - 1]}`, 2500); speak(ok ? "Correct" : "Wrong. The answer is " + q.options[q.answer - 1]);
+  setTimeout(() => {
+    if (!quiz) return; quiz.busy = false; quiz.i++;
+    if (quiz.i >= quiz.qs.length) { const m = `${quiz.score} out of ${quiz.qs.length}`; $("quizbox").hidden = true; bot(`Quiz finished. You scored ${m}.`); quiz = null; }
+    else showQ();
+  }, 2800);
+}
+async function readQuizDigit() {
+  try {
+    const d = await post("/api/solve", {image: draw.toDataURL("image/png"), auto: false});
+    if (quizBase) ctx.putImageData(quizBase, 0, 0);     // remove the digit, keep page marks
+    const v = String(d.value || "").trim();
+    if (/^[1-4]$/.test(v)) answerQuiz(+v); else toast("Write one digit from 1 to 4, bigger and clearer");
+  } catch (e) {}
+}
+
+// ================= voice =================
+async function handleUtterance(text) {
+  text = text.trim(); if (!text) return; $("status").textContent = "Ready";
+  if (quiz && !quiz.busy) {
+    const w = text.toLowerCase().replace(/[^a-z0-9 ]/g, "").split(/\s+/).filter(x => x && !["option", "answer", "number", "choice", "is", "the", "its", "it"].includes(x));
+    const map = {1: 1, 2: 2, 3: 3, 4: 4, one: 1, two: 2, three: 3, four: 4, to: 2, too: 2, for: 4};
+    if (w.length === 1 && map[w[0]]) return answerQuiz(map[w[0]]);
+  }
+  if (await botIntent(text)) return;
+  try { const d = await post("/api/say", {text}); if (d.math) { d.error ? toast(d.error) : showResult(d.expr, d.value); return; } } catch (e) {}
+  command(text.toLowerCase());
+}
+function command(t) {
+  const w = new Set(t.match(/[a-z']+/g) || []), has = (...x) => x.some(k => w.has(k)), pm = t.match(/page\s+(\d+)/);
+  const step = d => { const k = Object.values(SIZES), i = k.indexOf(brush); setBrush(k[Math.min(2, Math.max(0, (i < 0 ? 1 : i) + d))]); };
+  if (pm) goPage(+pm[1]); else if (has("next")) goPage(pageNo + 1); else if (has("previous", "back")) goPage(pageNo - 1);
+  else if (has("highlight", "highlighter")) setTool("highlight"); else if (has("underline")) setTool("underline");
+  else if (has("clear", "wipe", "reset") || t.includes("erase all")) clearCanvas();
+  else if (has("undo")) doUndo(); else if (has("redo")) doRedo();
+  else if (has("save", "screenshot", "snapshot")) savePNG();
+  else if (has("solve", "calculate", "compute", "answer", "equals")) solve(false);
+  else if (has("eraser", "erase", "rubber")) setTool("eraser"); else if (has("pen")) setTool("pen");
+  else if (has("dark", "black")) setDark(true); else if (has("camera", "webcam")) setDark(false);
+  else if (has("bigger", "larger", "thicker")) step(1); else if (has("smaller", "thinner")) step(-1);
+  else if (has("small", "thin")) setBrush(5); else if (has("medium")) setBrush(10); else if (has("large", "big", "thick")) setBrush(20);
+  else { const c = NAMES.find(n => w.has(n)); if (c) setColor(c); else if (has("color", "colour")) setColor(NAMES[(NAMES.indexOf(color) + 1) % NAMES.length]); else toast(`Heard: "${t}"`, 2500); }
+}
+function startRec() { if (!voiceOn || speaking || !rec) return; try { rec.start(); $("mic").textContent = "Listening"; } catch (e) {} }
+function startVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $("mic").textContent = "Voice: use Chrome"; return; }
+  rec = new SR(); rec.lang = "en-IN"; rec.continuous = true; rec.interimResults = true; voiceOn = true;
+  let done = new Set(), timer = null;                   // handle a phrase after a short pause, without waiting for Chrome's slow "final"
+  rec.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i], text = r[0].transcript.trim(); if (done.has(i) || !text) continue;
+      live(text); clearTimeout(timer);
+      if (r.isFinal) { done.add(i); handleUtterance(text); }
+      else timer = setTimeout(() => { if (!done.has(i)) { done.add(i); handleUtterance(text); } }, 1000);
+    }
+  };
+  rec.onend = () => { done = new Set(); $("mic").textContent = voiceOn ? "" : "Mic off"; if (voiceOn && !speaking) setTimeout(startRec, 80); };
+  rec.onerror = e => { if (e.error === "not-allowed" || e.error === "service-not-allowed") { voiceOn = false; $("mic").textContent = "Mic blocked"; refresh(); } };
+  startRec(); refresh();
+}
+$("bMic").onclick = () => { voiceOn = !voiceOn; if (voiceOn) startRec(); else { try { rec.abort(); } catch (e) {} } refresh(); toast(voiceOn ? "Mic on" : "Mic off"); };
+$("bVoice").onclick = () => { voiceReplies = !voiceReplies; if (!voiceReplies) speechSynthesis.cancel(); refresh(); toast("Spoken replies " + (voiceReplies ? "on" : "off")); };
+$("bPrev").onclick = () => goPage(pageNo - 1); $("bNext").onclick = () => goPage(pageNo + 1);
+$("bSum").onclick = () => botIntent("summarize this page"); $("bExp").onclick = doExplain; $("bQuiz").onclick = () => botIntent("quiz me");
+$("chatBtn").onclick = () => { const v = $("chatIn").value.trim(); if (v) { $("chatIn").value = ""; chat("you", v); handleUtterance(v); } };
+$("chatIn").onkeydown = e => { if (e.key === "Enter") $("chatBtn").click(); };
+
+// ================= dataset collector (developer tool) =================
+const LABELS = [..."0123456789", "+", "-", "*", "/", "="];
+LABELS.forEach(v => { const o = document.createElement("option"); o.value = v; o.textContent = {"*": "x (times)", "/": "division sign"}[v] || v; $("lab").appendChild(o); });
+$("saveSample").onclick = async () => {
+  try {
+    const d = await post("/api/sample", {label: $("lab").value, image: draw.toDataURL("image/png")});
+    if (!d.ok) return toast(d.error, 3000);
+    $("cnt").textContent = `Saved! "${$("lab").value}" has ${d.count} samples, ${d.total} in total.`; ctx.clearRect(0, 0, W, H);
+    if (d.count % 10 === 0) $("lab").selectedIndex = ($("lab").selectedIndex + 1) % LABELS.length;
+  } catch (e) { toast("Server not reachable"); }
+};
+
+// ================= hand tracking + hover-select =================
+function gHit(p) {
+  const R = stage.getBoundingClientRect(), x = R.left + p.x / W * R.width, y = R.top + p.y / H * R.height;
+  for (const el of stage.querySelectorAll(".g")) {
+    if (el.offsetParent === null) continue; const r = el.getBoundingClientRect();
+    if (x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4) return el;
+  }
+  return null;
+}
+function endStroke(s) {
+  if (s.drawing) {
+    dirty = true; lastEnd = performance.now();
+    if (s.marker && s.pts && s.pts.length) { const xs = s.pts.map(p => p.x); lastMark = {x1: Math.min(...xs), x2: Math.max(...xs), y: s.pts[0].y, t: performance.now()}; }
+  }
+  s.drawing = false; s.prev = null; s.marker = false;
+}
+function onHand(lm, s, now) {
+  const raw = {x: (1 - lm[8].x) * W, y: lm[8].y * H};
+  s.pos = s.pos ? {x: .5 * s.pos.x + .5 * raw.x, y: .5 * s.pos.y + .5 * raw.y} : raw;      // smoothing
+  const up = [[8, 6], [12, 10], [16, 14], [20, 18]].map(([t, p]) => lm[t].y < lm[p].y);
+  s.mode = up.every(Boolean) ? "palm" : up[0] && up[1] && up[2] ? "erase" : up[0] && up[1] ? "move" : up[0] ? "draw" : "idle";
+  s.progress = 0;
+  if (s.mode !== "palm") { s.palmT = null; s.palmDone = false; }
+
+  const el = (s.mode === "draw" || s.mode === "move") ? gHit(s.pos) : null;                // hover-select any on-screen button
+  if (s.hoverEl && s.hoverEl !== el) s.hoverEl.classList.remove("hov");
+  if (el) {
+    endStroke(s);
+    if (el !== s.hoverEl) { s.hoverEl = el; s.hoverT = now; s.hoverDone = false; el.classList.add("hov"); }
+    if (!s.hoverDone) { s.progress = (now - s.hoverT) / 900; if (s.progress >= 1) { el.click(); s.hoverDone = true; s.progress = 0; } }
+    return;
+  }
+  s.hoverEl = null;
+  if (s.mode === "draw" || s.mode === "move") lastPoint = {x: s.pos.x, y: s.pos.y, t: now};
+
+  if (s.mode === "draw" || s.mode === "erase") {
+    const marker = s.mode === "draw" && (tool === "highlight" || tool === "underline");
+    if (!s.drawing || s.kind !== s.mode) { endStroke(s); snap(); s.drawing = true; s.kind = s.mode; s.marker = marker; s.prev = s.pos; s.pts = [s.pos]; if (!marker) seg(s.pos, s.pos, s.mode); }
+    else { s.pts.push(s.pos); if (!marker) seg(s.prev, s.pos, s.mode); s.prev = s.pos; }
+    if (marker) markStroke(s);
+  } else endStroke(s);
+  if (s.mode === "palm") {
+    s.palmT ??= now;
+    if (!s.palmDone) { s.progress = (now - s.palmT) / 1500; if (s.progress >= 1) { clearCanvas(); s.palmDone = true; s.progress = 0; } }
+  }
+}
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  if (landmarker && cam.readyState >= 2 && cam.currentTime !== lastVideoT) {
+    lastVideoT = cam.currentTime;
+    const res = landmarker.detectForVideo(cam, now);
+    while (hands.length < res.landmarks.length) hands.push({});
+    while (hands.length > res.landmarks.length) { const h = hands.pop(); endStroke(h); if (h.hoverEl) h.hoverEl.classList.remove("hov"); }
+    res.landmarks.forEach((lm, i) => onHand(lm, hands[i], now));
+  }
+  hctx.clearRect(0, 0, W, H);
+  for (const s of hands) {
+    if (!s.pos) continue;
+    hctx.lineWidth = 2; hctx.strokeStyle = "#fff"; hctx.beginPath();
+    hctx.arc(s.pos.x, s.pos.y, s.mode === "erase" ? 28 : Math.max(6, brush / 2 + 3), 0, 7); hctx.stroke();
+    if (s.progress > 0) { hctx.strokeStyle = "#3ddc84"; hctx.lineWidth = 4; hctx.beginPath(); hctx.arc(s.pos.x, s.pos.y, 24, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(1, s.progress)); hctx.stroke(); }
+    hctx.fillStyle = "#fff"; hctx.font = "12px sans-serif"; hctx.fillText(s.hoverEl ? "SELECT" : s.mode.toUpperCase(), s.pos.x + 18, s.pos.y - 14);
+  }
+  const still = !hands.some(h => h.drawing) && now - lastEnd > 1200;
+  if (quiz && !quiz.busy && dirty && still) { dirty = false; readQuizDigit(); }
+  else if (!pdfOn && !quiz && dirty && still && now - lastEnd > 1500) { dirty = false; solve(true); }     // calculator: draw "=" and pause
+}
+
+$("startBtn").onclick = async () => {
+  $("status").textContent = "Loading hand tracking...";
+  try {
+    cam.srcObject = await navigator.mediaDevices.getUserMedia({video: {width: 640, height: 480}}); await cam.play();
+    const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await HandLandmarker.createFromOptions(fs, {
+      baseOptions: {modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU"},
+      runningMode: "VIDEO", numHands: 2, minHandDetectionConfidence: .6, minTrackingConfidence: .6});
+    $("start").remove(); $("status").textContent = "Ready"; startVoice(); refresh(); refreshAI(); loop();
+    chat("bot", "Hi! Open a PDF and ask me anything about it. " + "Say or tap: summarize, explain this, quiz me.");
+  } catch (e) { $("status").textContent = "Error: " + e.message; console.error(e); }
+};
+refresh();
+</script>
+</body>
+</html>
